@@ -337,7 +337,7 @@ const convertFrameworkDetail = async (framework) => {
   return detail;
 };
 
-const generateTaskRole = (frameworkName, taskRole, labels, config, storageConfig) => {
+const generateTaskRole = (frameworkName, taskRole, labels, config, storageConfig, frameworkEnvList) => {
   const ports = config.taskRoles[taskRole].resourcePerInstance.ports || {};
   for (let port of ['ssh', 'http']) {
     if (!(port in ports)) {
@@ -371,11 +371,6 @@ const generateTaskRole = (frameworkName, taskRole, labels, config, storageConfig
     retryPolicy.fancyRetryPolicy = true;
     retryPolicy.maxRetryCount = config.taskRoles[taskRole].taskRetryCount || 0;
   }
-  // generate runtime env
-  const env = runtimeEnv.generateFrameworkEnv(frameworkName, config);
-  const envlist = Object.keys(env).map((name) => {
-    return {name, value: `${env[name]}`};
-  });
 
   const frameworkTaskRole = {
     name: convertName(taskRole),
@@ -478,7 +473,11 @@ const generateTaskRole = (frameworkName, taskRole, labels, config, storageConfig
                 },
               },
               env: [
-                ...envlist,
+                ...frameworkEnvList,
+                {
+                  name: 'PAI_CURRENT_TASK_ROLE_NAME',
+                  value: taskRole,
+                },
                 {
                   name: 'PAI_CURRENT_TASK_ROLE_CURRENT_TASK_INDEX',
                   valueFrom: {
@@ -649,11 +648,17 @@ const generateFrameworkDescription = (frameworkName, virtualCluster, config, raw
     },
   };
 
+  // generate framework env
+  const frameworkEnv = runtimeEnv.generateFrameworkEnv(frameworkName, config);
+  const frameworkEnvList = Object.keys(frameworkEnv).map((name) => {
+    return {name, value: `${env[name]}`};
+  });
+
   // fill in task roles
   let totalGpuNumber = 0;
   for (let taskRole of Object.keys(config.taskRoles)) {
     totalGpuNumber += config.taskRoles[taskRole].resourcePerInstance.gpu * config.taskRoles[taskRole].instances;
-    const taskRoleDescription = generateTaskRole(frameworkName, taskRole, frameworkLabels, config, storageConfig);
+    const taskRoleDescription = generateTaskRole(frameworkName, taskRole, frameworkLabels, config, storageConfig, frameworkEnvList);
     taskRoleDescription.task.pod.spec.priorityClassName = `${encodeName(frameworkName)}-priority`;
     frameworkDescription.spec.taskRoles.push(taskRoleDescription);
   }
