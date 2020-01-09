@@ -68,9 +68,13 @@ type HivedScheduler struct {
 	// Informer is used to sync remote objects to local cached objects, and deliver
 	// events of object changes.
 	//
-	// The event delivery is level driven, not edge driven.
-	// For example, the Informer may not deliver any event if a create is immediately
-	// followed by a delete.
+	// The event delivery for an object is level driven instead of edge driven,
+	// and the object is identified by its name instead of its UID.
+	// For example:
+	// 1. Informer may not deliver any event if a create is immediately followed
+	//    by a delete.
+	// 2. Informer may deliver an Update event with UID changed if a delete is
+	//    immediately followed by a create.
 	//
 	// Platform Error Panic in Informer Callbacks will not be recovered, i.e. it will
 	// crash the whole process, since generally it is a ground truth failure that
@@ -254,6 +258,14 @@ func (s *HivedScheduler) updatePod(oldObj, newObj interface{}) {
 	oldPod := internal.ToPod(oldObj)
 	newPod := internal.ToPod(newObj)
 	if oldPod != nil && newPod != nil {
+		// Informer may deliver an Update event with UID changed if a delete is
+		// immediately followed by a create, so manually decompose it.
+		if oldPod.UID != newPod.UID {
+			s.deletePod(oldObj)
+			s.addPod(newObj)
+			return
+		}
+
 		oldBound := internal.IsBound(oldPod)
 		newBound := internal.IsBound(newPod)
 		if !oldBound && newBound {
@@ -518,7 +530,7 @@ func (s *HivedScheduler) filterRoutine(args ei.ExtenderArgs) *ei.ExtenderFilterR
 			go s.forceBindExecutor(bindingPod)
 		}
 
-		klog.Infof(logPfx + "Pod is binding: %v", common.ToJson(result.PodBindInfo))
+		klog.Infof(logPfx+"Pod is binding: %v", common.ToJson(result.PodBindInfo))
 		return &ei.ExtenderFilterResult{
 			NodeNames: &[]string{bindingPod.Spec.NodeName},
 		}
@@ -542,7 +554,7 @@ func (s *HivedScheduler) filterRoutine(args ei.ExtenderArgs) *ei.ExtenderFilterR
 			}
 		}
 
-		klog.Infof(logPfx + "Pod is preempting: %v", common.ToJson(failedNodes))
+		klog.Infof(logPfx+"Pod is preempting: %v", common.ToJson(failedNodes))
 		return &ei.ExtenderFilterResult{
 			FailedNodes: failedNodes,
 		}
